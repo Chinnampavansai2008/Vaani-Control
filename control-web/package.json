@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test recording.test.js history.test.js historyCsv.test.js storeConnection.test.js readOnlyAnswer.test.js"
+    "test": "node --test recording.test.js history.test.js historyCsv.test.js storeConnection.test.js readOnlyAnswer.test.js readAloud.test.js"
   },
   "dependencies": {
     "react": "^19.0.0",

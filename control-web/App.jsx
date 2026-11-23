@@ -4,6 +4,7 @@ import {filterHistory} from './history.js';
 import {downloadHistoryCsv} from './historyCsv.js';
 import StoreConnection from './StoreConnection.jsx';
 import {validateReadOnlyAnswer} from './readOnlyAnswer.js';
+import ReadAloud from './ReadAloud.jsx';
 
 const rupees = new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 0});
 function displayValue(field, value) {
@@ -48,6 +49,7 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState('all');
   const filteredHistory = filterHistory(history, {search, type: typeFilter, status: statusFilter});
   const speech = useRef(null);
+  const playback = useRef(null);
   const session = useRef(0);
   const active = phase !== 'idle';
 
@@ -63,6 +65,7 @@ export default function App() {
   }, []);
 
   async function run(action, {refreshHistory = true} = {}) {
+    playback.current?.stop();
     setBusy(true); setError('');
     try { await action(); if (refreshHistory) setHistory(await api('history')); }
     catch (e) { setError(e.message); }
@@ -75,6 +78,7 @@ export default function App() {
   }
 
   function startSpeech() {
+    playback.current?.stop();
     setError(''); setPreview(null); setAnswer(null); setSpeechNote('');
     const id = ++session.current;
     const current = () => id === session.current;
@@ -175,6 +179,7 @@ export default function App() {
         <span className="field-label">{answer.field === 'price' ? 'Current price' : 'Current stock'}</span>
         <p className="answer-value">{displayValue(answer.field, answer.value)}</p>
         <p className="helper">Read-only answer. No store change was made, and nothing was added to action history.</p>
+        <ReadAloud data={answer} kind="answer" language={language} disabled={active || busy} controllerRef={playback} />
         <button className="secondary" onClick={() => setAnswer(null)}>Dismiss answer</button>
       </div> : preview ? <>
       <p className="product-name">{preview.product}</p>
@@ -182,6 +187,7 @@ export default function App() {
       <dl className="value-comparison"><div><dt>Current</dt><dd>{displayValue(preview.field, preview.previous)}</dd></div><div><dt>Proposed</dt><dd>{displayValue(preview.field, preview.value)}</dd></div></dl>
       {preview.field === 'price' && <p className="helper">Percentage changes round to the nearest rupee; half a rupee rounds up.</p>}
       <p className="helper">Confirm to apply this change to your store. It will be recorded in history.</p>
+      <ReadAloud data={preview} kind="preview" language={language} disabled={active || busy} controllerRef={playback} />
       <div className="button-row">
       <button disabled={busy || active} onClick={() => run(async () => { await api('confirm/' + preview.id, {}); setPreview(null); })}>Confirm</button>
       <button className="secondary" disabled={busy} onClick={() => setPreview(null)}>Cancel change</button>

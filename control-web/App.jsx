@@ -3,6 +3,7 @@ import {createSarvamRecording} from './recording.js';
 import {filterHistory} from './history.js';
 import {downloadHistoryCsv} from './historyCsv.js';
 import StoreConnection from './StoreConnection.jsx';
+import {validateReadOnlyAnswer} from './readOnlyAnswer.js';
 
 const rupees = new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 0});
 function displayValue(field, value) {
@@ -33,6 +34,7 @@ async function api(path, body, signal) {
 export default function App() {
   const [text, setText] = useState('Change black hoodie price to 899');
   const [preview, setPreview] = useState(null);
+  const [answer, setAnswer] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -60,9 +62,9 @@ export default function App() {
     return () => { controller.abort(); session.current++; speech.current?.cancel(); };
   }, []);
 
-  async function run(action) {
+  async function run(action, {refreshHistory = true} = {}) {
     setBusy(true); setError('');
-    try { await action(); setHistory(await api('history')); }
+    try { await action(); if (refreshHistory) setHistory(await api('history')); }
     catch (e) { setError(e.message); }
     finally { setBusy(false); }
   }
@@ -73,13 +75,13 @@ export default function App() {
   }
 
   function startSpeech() {
-    setError(''); setPreview(null); setSpeechNote('');
+    setError(''); setPreview(null); setAnswer(null); setSpeechNote('');
     const id = ++session.current;
     const current = () => id === session.current;
     const onTranscript = transcript => {
       if (!current()) return;
-      setText(transcript); setPreview(null);
-      setSpeechNote('Transcript ready. Review or edit it, then click Preview.');
+      setText(transcript); setPreview(null); setAnswer(null);
+      setSpeechNote('Transcript ready. Review it, then use Ask store for a question or Preview for a change.');
     };
     if (provider === 'sarvam') {
       speech.current = createSarvamRecording({
@@ -151,15 +153,30 @@ export default function App() {
           {phase === 'recording' && <button className="stop-button" onClick={() => speech.current?.stop()}><span className="stop-icon" aria-hidden="true"/>Stop {provider === 'sarvam' ? 'and transcribe' : 'listening'}</button>}
           {active && <button className="secondary" onClick={cancelSpeech}>Cancel recording</button>}
         </div>
-        <p role="status" aria-live="polite" className={'speech-status' + (active ? ' speech-status--active' : '')}>{phaseMessage || 'Your transcript will appear below. You can edit it before Preview.'}</p>
+        <p role="status" aria-live="polite" className={'speech-status' + (active ? ' speech-status--active' : '')}>{phaseMessage || 'Your transcript will appear below. You can edit it before asking or preparing a change.'}</p>
       </div>
-      <label className="transcript-label" htmlFor="command">Review transcript or type a command</label>
-      <textarea id="command" rows="3" value={text} disabled={active || busy} onChange={e => { setText(e.target.value); setPreview(null); }} />
-      <div className="preview-row"><p className="helper">Review first. Confirm when you’re ready.</p><button disabled={active || busy || !text.trim()} onClick={() => run(async () => setPreview(await api('preview', {text})))}>{busy ? 'Working…' : 'Preview'}</button></div>
+      <label className="transcript-label" htmlFor="command">Review transcript or type a command or question</label>
+      <textarea id="command" rows="3" value={text} disabled={active || busy} onChange={e => { setText(e.target.value); setPreview(null); setAnswer(null); }} />
+      <div className="preview-row"><p className="helper">Ask store to read a value. Preview to prepare a change.</p><div className="command-actions">
+        <button className="secondary" disabled={active || busy || !text.trim()} onClick={() => {
+          setPreview(null); setAnswer(null);
+          run(async () => setAnswer(validateReadOnlyAnswer(await api('query', {text}))), {refreshHistory: false});
+        }}>Ask store</button>
+        <button disabled={active || busy || !text.trim()} onClick={() => {
+          setAnswer(null); setPreview(null);
+          run(async () => setPreview(await api('preview', {text})));
+        }}>{busy ? 'Working…' : 'Preview'}</button>
+      </div></div>
     </section>
     <section className="review-panel" aria-labelledby="review-heading">
-      <div className="panel-heading"><span className="step-number" aria-hidden="true">02</span><div><p className="eyebrow">YOU MAKE THE CALL</p><h2 id="review-heading">Review &amp; confirm</h2></div></div>
-      {preview ? <>
+      <div className="panel-heading"><span className="step-number" aria-hidden="true">02</span><div><p className="eyebrow">{answer ? 'CATALOG LOOKUP' : 'YOU MAKE THE CALL'}</p><h2 id="review-heading">{answer ? 'Store answer' : 'Review & confirm'}</h2></div></div>
+      {answer ? <div className="store-answer" role="status" aria-live="polite">
+        <p className="product-name">{answer.product}</p>
+        <span className="field-label">{answer.field === 'price' ? 'Current price' : 'Current stock'}</span>
+        <p className="answer-value">{displayValue(answer.field, answer.value)}</p>
+        <p className="helper">Read-only answer. No store change was made, and nothing was added to action history.</p>
+        <button className="secondary" onClick={() => setAnswer(null)}>Dismiss answer</button>
+      </div> : preview ? <>
       <p className="product-name">{preview.product}</p>
       <span className="field-label">{preview.field === 'price' ? 'Price update' : 'Stock update'}</span>
       <dl className="value-comparison"><div><dt>Current</dt><dd>{displayValue(preview.field, preview.previous)}</dd></div><div><dt>Proposed</dt><dd>{displayValue(preview.field, preview.value)}</dd></div></dl>
@@ -171,8 +188,8 @@ export default function App() {
       </div>
       </> : <div className="review-placeholder">
         <div className="review-symbol" aria-hidden="true">✓</div>
-        <h3>Your next change appears here</h3>
-        <p>Record or type a command, then select Preview to check the product and values.</p>
+        <h3>Your answer or next change appears here</h3>
+        <p>Select Ask store for a current price or stock. Select Preview to review a proposed change.</p>
         <div className="confirmation-note">Nothing changes until you click Confirm.</div>
       </div>}
     </section>

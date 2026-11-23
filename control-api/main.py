@@ -13,6 +13,7 @@ load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 from gemini_parser import interpret
 from sarvam_transcriber import transcribe_audio
 from store_status import StoreStatus, inspect_store
+from product_queries import ProductAnswer, answer_query
 
 app=FastAPI(title="VaaniControl")
 app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5174"],allow_methods=["*"],allow_headers=["*"])
@@ -34,6 +35,17 @@ def save():
  temp=path.with_suffix(".tmp"); temp.write_text(json.dumps(history,indent=2)); temp.replace(path)
 class Command(BaseModel):
  text:str
+
+@app.post("/api/query", response_model=ProductAnswer)
+def query(c:Command):
+ text=c.text.strip()
+ if not text or len(text)>2000: raise HTTPException(422,"Enter a question of 1–2000 characters.")
+ try:
+  products=store("/api/products")
+ except Exception:
+  raise HTTPException(502,"Could not read the store catalog. Check the Connected Store panel.") from None
+ return answer_query(text,products)
+
 @app.post("/api/preview")
 def preview(c:Command):
  text=c.text.lower().strip().rstrip(".!?").strip()

@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createSarvamRecording} from './recording.js';
 import {filterHistory} from './history.js';
+import {downloadHistoryCsv} from './historyCsv.js';
 
 const rupees = new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 0});
 function displayValue(field, value) {
@@ -179,7 +180,13 @@ export default function App() {
         <div><label htmlFor="history-search">Search product</label><input id="history-search" type="search" placeholder="Product name" value={search} onChange={e => setSearch(e.target.value)} /></div>
         <div><label htmlFor="history-type">Action type</label><select id="history-type" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All types</option><option value="price">Price</option><option value="stock">Stock</option></select></div>
         <div><label htmlFor="history-status">Action status</label><select id="history-status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="applied">Applied</option><option value="undone">Undone</option></select></div>
-        <button className="secondary" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('all'); }}>Clear filters</button>
+        <div className="history-buttons">
+          <button className="secondary" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('all'); }}>Clear filters</button>
+          <button className="secondary" disabled={busy || filteredHistory.length === 0} onClick={() => {
+            try { downloadHistoryCsv(filteredHistory); }
+            catch { setError('The CSV download could not start. Please try again in your browser.'); }
+          }}>Download CSV</button>
+        </div>
       </div>
       {history.length === 0 ? <p className="empty-history">No confirmed changes yet. Your first action will appear here.</p> : filteredHistory.length === 0 ? <p className="empty-history">No matching actions. Try another search or clear the filters.</p> : null}
       <div className="history-list">{filteredHistory.map(action => <article key={action.id} className="history-item">

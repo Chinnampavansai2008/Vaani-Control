@@ -163,6 +163,7 @@ export default function App() {
       <p className="product-name">{preview.product}</p>
       <span className="field-label">{preview.field === 'price' ? 'Price update' : 'Stock update'}</span>
       <dl className="value-comparison"><div><dt>Current</dt><dd>{displayValue(preview.field, preview.previous)}</dd></div><div><dt>Proposed</dt><dd>{displayValue(preview.field, preview.value)}</dd></div></dl>
+      {preview.field === 'price' && <p className="helper">Percentage changes round to the nearest rupee; half a rupee rounds up.</p>}
       <p className="helper">Confirm to apply this change to your store. It will be recorded in history.</p>
       <div className="button-row">
       <button disabled={busy || active} onClick={() => run(async () => { await api('confirm/' + preview.id, {}); setPreview(null); })}>Confirm</button>

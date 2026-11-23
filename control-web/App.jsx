@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {createSarvamRecording} from './recording.js';
 import {filterHistory} from './history.js';
 import {downloadHistoryCsv} from './historyCsv.js';
+import StoreConnection from './StoreConnection.jsx';
 
 const rupees = new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 0});
 function displayValue(field, value) {
@@ -121,6 +122,7 @@ export default function App() {
         <p className="page-description">Speak a change. Review the details. Stay in control.</p></div>
       <span className="language-badge">English <span aria-hidden="true">·</span> తెలుగు</span>
     </header>
+    <StoreConnection />
     {error && <div role="alert" className="error"><strong>Let’s check that.</strong> {error}</div>}
     <div className="workspace-grid">
     <section className="command-panel" aria-labelledby="command-heading">

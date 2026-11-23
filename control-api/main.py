@@ -12,6 +12,7 @@ from pydantic import BaseModel
 load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
 from gemini_parser import interpret
 from sarvam_transcriber import transcribe_audio
+from store_status import StoreStatus, inspect_store
 
 app=FastAPI(title="VaaniControl")
 app.add_middleware(CORSMiddleware,allow_origins=["http://localhost:5174"],allow_methods=["*"],allow_headers=["*"])
@@ -25,6 +26,10 @@ def store(route,method="GET",data=None):
   with urlopen(req,timeout=10) as f:return json.load(f)
  except HTTPError as e: raise HTTPException(e.code,e.read().decode())
  except URLError: raise HTTPException(502,"Store unavailable. Start store-api.")
+@app.get("/api/store/status", response_model=StoreStatus)
+def store_status():
+ return inspect_store(store, os.getenv("STORE_API_URL", "http://127.0.0.1:8001"))
+
 def save():
  temp=path.with_suffix(".tmp"); temp.write_text(json.dumps(history,indent=2)); temp.replace(path)
 class Command(BaseModel):

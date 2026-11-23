@@ -147,6 +147,7 @@ class CartLine(BaseModel):
     quantity: int = Field(ge=1, le=20, strict=True)
     size: str = Field(min_length=1, max_length=20)
     color: str = Field(min_length=1, max_length=30)
+    expected_unit_price: int | None = Field(default=None, ge=0, strict=True)
 
 
 class OrderCreate(BaseModel):
@@ -270,6 +271,8 @@ def place_order(body: OrderCreate):
                 total += p['price'] * qty
             for item in body.items:
                 p = con.execute('SELECT * FROM products WHERE id=?', (item.product_id,)).fetchone()
+                if item.expected_unit_price is not None and item.expected_unit_price != p['price']:
+                    raise HTTPException(409, {'code': 'price_changed', 'message': f'Price changed for {p["name"]}. Review the updated bag total and place your order again.'})
                 if item.size not in json.loads(p['sizes']) or item.color not in json.loads(p['colors']):
                     raise HTTPException(422, f'Invalid size/color for {p["name"]}')
                 details.append((item.product_id,p['name'],item.quantity,p['price'],item.size,item.color))

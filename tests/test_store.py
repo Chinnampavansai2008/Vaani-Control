@@ -132,3 +132,52 @@ def test_concurrent_cas_only_one_update_succeeds(client):
     with ThreadPoolExecutor(max_workers=2) as pool:
         statuses=list(pool.map(call,[995,996]))
     assert sorted(statuses)==[200,409]
+
+
+def checkout_body(items):
+    return {'customer_name':'Test Buyer','email':'test@example.com','items':items}
+
+
+@pytest.mark.parametrize('new_price',[999,1499,0])
+def test_stale_checkout_price_rejected_without_order_or_inventory_change(client,new_price):
+    changed=client.patch('/api/integrations/products/1',headers=control_headers(),json={'field':'price','value':new_price,'expected':1299})
+    assert changed.status_code==200
+    response=client.post('/api/orders',json=checkout_body([{'product_id':1,'quantity':2,'size':'M','color':'Black','expected_unit_price':1299}]))
+    assert response.status_code==409
+    assert response.json()['detail']['code']=='price_changed'
+    assert client.get('/api/products/1').json()['stock']==20
+    assert client.get('/api/admin/orders',headers=admin_headers()).json()==[]
+
+
+@pytest.mark.parametrize('price',[1299,0])
+def test_matching_expected_price_checkout_succeeds(client,price):
+    if price==0:
+        assert client.patch('/api/integrations/products/1',headers=control_headers(),json={'field':'price','value':0,'expected':1299}).status_code==200
+    response=client.post('/api/orders',json=checkout_body([{'product_id':1,'quantity':2,'size':'M','color':'Black','expected_unit_price':price}]))
+    assert response.status_code==201
+    assert response.json()['total']==2*price
+    assert response.json()['items'][0]['unit_price']==price
+    assert client.get('/api/products/1').json()['stock']==18
+
+
+def test_one_stale_line_rejects_entire_order_without_partial_writes(client):
+    items=[{'product_id':1,'quantity':1,'size':'M','color':'Black','expected_unit_price':1299},
+           {'product_id':2,'quantity':1,'size':'M','color':'White','expected_unit_price':399}]
+    assert client.post('/api/orders',json=checkout_body(items)).status_code==409
+    assert [p['stock'] for p in client.get('/api/products').json()][:2]==[20,40]
+    with store.db() as con:
+        assert con.execute('SELECT COUNT(*) FROM orders').fetchone()[0]==0
+        assert con.execute('SELECT COUNT(*) FROM order_items').fetchone()[0]==0
+
+
+def test_each_size_line_must_match_the_current_price(client):
+    items=[{'product_id':1,'quantity':1,'size':size,'color':'Black','expected_unit_price':price} for size,price in [('M',1299),('L',999)]]
+    assert client.post('/api/orders',json=checkout_body(items)).status_code==409
+    assert client.get('/api/products/1').json()['stock']==20
+
+
+@pytest.mark.parametrize('price',[True,-1,1.5,'1299',{},[]])
+def test_invalid_expected_unit_price_rejected(client,price):
+    response=client.post('/api/orders',json=checkout_body([{'product_id':1,'quantity':1,'size':'M','color':'Black','expected_unit_price':price}]))
+    assert response.status_code==422
+    assert client.get('/api/products/1').json()['stock']==20

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './style.css';
+import {reconcileCartPrices, buildOrderItems} from './cartPricing.js';
 
 const API = import.meta.env.VITE_STORE_API_URL || 'http://localhost:8001';
 type Product = { id:number; name:string; category:string; description:string; price:number; stock:number; image_url:string; sizes:string[]; colors:string[] };
@@ -9,7 +10,8 @@ const money = (n:number) => `₹${n.toLocaleString('en-IN')}`;
 
 function App() {
   const [products,setProducts] = useState<Product[]>([]);
-  const [cart,setCart] = useState<CartItem[]>([]);
+  const [savedCart,setCart] = useState<CartItem[]>([]);
+  const {items:cart, changed:cartPricesChanged, unavailable} = reconcileCartPrices(savedCart,products);
   const [tab,setTab] = useState<'shop'|'admin'>('shop');
   const [filter,setFilter] = useState('All');
   const [search,setSearch] = useState('');
@@ -47,12 +49,16 @@ function App() {
   }
 
   async function order() {
+    if (unavailable.length) return setMessage('Some bag products are unavailable. Remove them before checkout.');
     if (!checkout.name.trim() || !checkout.email.includes('@')) return setMessage('Enter your name and a valid email for demo checkout.');
     setBusy(true);setMessage('');
     try {
-      const response = await fetch(`${API}/api/orders`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer_name:checkout.name,email:checkout.email,items:cart.map(x=>({product_id:x.product_id,quantity:x.quantity,size:x.size,color:x.color}))})});
+      const response = await fetch(`${API}/api/orders`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customer_name:checkout.name,email:checkout.email,items:buildOrderItems(cart)})});
       const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || 'Checkout failed');
+      if (!response.ok) {
+        if (response.status === 409) await load();
+        throw new Error(result.detail?.code === 'price_changed' ? result.detail.message : typeof result.detail === 'string' ? result.detail : 'Checkout failed. Please review your bag and try again.');
+      }
       setMessage(`Demo order #${result.order_id} created! Total ${money(result.total)}. No payment was collected.`);
       setCart([]);setCartOpen(false);void load();
     } catch(e) {setMessage(e instanceof Error? e.message:'Order failed');}
@@ -97,7 +103,7 @@ function App() {
       <footer><span>VAANI<span className="dot">.</span> FASHION</span><small>Designed as a working hackathon demo · Checkout is simulated, not a live payment.</small></footer>
     </> : <main className="studio"><div className="eyebrow">STORE ADMINISTRATION</div><h1>Seller studio</h1><p>Manage your fashion store independently. Updates from VaaniControl will also appear here.</p><div className="admin-auth"><label>Local demo admin key <input type="password" placeholder="Enter STORE_ADMIN_KEY" value={adminKey} onChange={e=>setAdminKey(e.target.value)}/></label><small>Only for localhost development. Add production auth before deployment.</small></div><div className="seller-switch"><button className={adminView==='inventory'?'selected':''} onClick={()=>setAdminView('inventory')}>Product inventory</button><button className={adminView==='orders'?'selected':''} onClick={()=>void loadOrders()}>Orders</button></div>{adminView==='inventory' ? <><h2>Product inventory</h2><div className="admin-products">{products.map(p=><div key={p.id} className="admin-item"><div><strong>{p.name}</strong><small>{p.id}</small></div><label>Price (₹)<input type="number" min="0" value={productEdit[p.id]?.price ?? String(p.price)} onChange={e=>setProductEdit(s=>({...s,[p.id]:{price:e.target.value,stock:s[p.id]?.stock ?? String(p.stock)}}))}/></label><button className="mini-btn" disabled={busy} onClick={()=>void updateProduct(p,'price')}>Save price</button><label>Stock<input type="number" min="0" value={productEdit[p.id]?.stock ?? String(p.stock)} onChange={e=>setProductEdit(s=>({...s,[p.id]:{price:s[p.id]?.price ?? String(p.price),stock:e.target.value}}))}/></label><button className="mini-btn" disabled={busy} onClick={()=>void updateProduct(p,'stock')}>Save stock</button></div>)}</div><h2>Add a new product</h2><div className="admin-form">{(Object.keys(newProduct) as (keyof typeof newProduct)[]).map(k=><label key={k}>{k.replace('_',' ')}<input value={newProduct[k]} onChange={e=>setNewProduct(s=>({...s,[k]:e.target.value}))}/></label>)}<button className="button dark" disabled={busy} onClick={()=>void createProduct()}>Create product</button></div></> : <><h2>Recent demo orders</h2><p>Orders are saved in the store database. These are demo checkouts; no payments are processed.</p><div className="order-list">{orders.length ? orders.map(o=><article className="order-card" key={o.id}><div className="order-top"><strong>Order #{o.id}</strong><span>{money(o.total)}</span></div><div>{o.customer_name} · {o.email}</div><small>{o.created_at} · {o.status.replaceAll('_',' ')}</small><div className="order-items">{o.items.map((item,i)=><small key={i}>{item.quantity}× {item.name} ({item.size}, {item.color})</small>)}</div></article>) : <p>No demo orders yet. Place one in the shop.</p>}</div></>}</main>}
     {message&&<div className="toast" role="status">{message}<button onClick={()=>setMessage('')}>×</button></div>}
-    {cartOpen&&<div className="cart-backdrop" onMouseDown={()=>setCartOpen(false)}><aside className="cart-panel" onMouseDown={e=>e.stopPropagation()}><div className="cart-head"><h2>Your bag ({count})</h2><button onClick={()=>setCartOpen(false)}>✕</button></div>{!cart.length?<div className="empty">Your bag is waiting for something great.</div>:<><div className="cart-items">{cart.map(x=><div className="cart-row" key={x.key}><div><strong>{x.name}</strong><small>{x.size} · {x.color} · {money(x.price)}</small></div><div className="qty"><button onClick={()=>setCart(c=>c.map(y=>y.key===x.key?{...y,quantity:Math.max(0,y.quantity-1)}:y).filter(y=>y.quantity>0))}>−</button><span>{x.quantity}</span><button onClick={()=>setCart(c=>c.map(y=>y.key===x.key?{...y,quantity:y.quantity+1}:y))}>+</button></div></div>)}</div><div className="cart-checkout"><div className="subtotal"><span>Subtotal</span><strong>{money(total)}</strong></div><p className="demo-label">DEMO CHECKOUT — NO REAL PAYMENT</p><input placeholder="Your full name" value={checkout.name} onChange={e=>setCheckout(s=>({...s,name:e.target.value}))}/><input placeholder="Email address" type="email" value={checkout.email} onChange={e=>setCheckout(s=>({...s,email:e.target.value}))}/><button className="button dark full" disabled={busy} onClick={()=>void order()}>{busy?'Placing...':'Place demo order →'}</button></div></>}</aside></div>}
+    {cartOpen&&<div className="cart-backdrop" onMouseDown={()=>setCartOpen(false)}><aside className="cart-panel" onMouseDown={e=>e.stopPropagation()}><div className="cart-head"><h2>Your bag ({count})</h2><button onClick={()=>setCartOpen(false)}>✕</button></div>{!cart.length?<div className="empty">Your bag is waiting for something great.</div>:<><div className="cart-items">{cart.map(x=><div className="cart-row" key={x.key}><div><strong>{x.name}</strong><small>{x.size} · {x.color} · {money(x.price)}</small></div><div className="qty"><button onClick={()=>setCart(c=>c.map(y=>y.key===x.key?{...y,quantity:Math.max(0,y.quantity-1)}:y).filter(y=>y.quantity>0))}>−</button><span>{x.quantity}</span><button onClick={()=>setCart(c=>c.map(y=>y.key===x.key?{...y,quantity:y.quantity+1}:y))}>+</button></div></div>)}</div><div className="cart-checkout">{unavailable.length>0 ? <p className="demo-label" role="alert">Unavailable: {unavailable.join(', ')}. Remove these items before checkout.</p> : cartPricesChanged ? <p className="demo-label" role="status">Prices have changed. Your bag now shows current prices; review the updated total before ordering.</p> : null}<div className="subtotal"><span>Subtotal</span><strong>{money(total)}</strong></div><p className="demo-label">DEMO CHECKOUT — NO REAL PAYMENT</p><input placeholder="Your full name" value={checkout.name} onChange={e=>setCheckout(s=>({...s,name:e.target.value}))}/><input placeholder="Email address" type="email" value={checkout.email} onChange={e=>setCheckout(s=>({...s,email:e.target.value}))}/><button className="button dark full" disabled={busy || unavailable.length>0} onClick={()=>void order()}>{busy?'Placing...':'Place demo order →'}</button></div></>}</aside></div>}
   </>;
 }
 

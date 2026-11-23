@@ -1,5 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createSarvamRecording} from './recording.js';
+import {filterHistory} from './history.js';
 
 const rupees = new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 0});
 function displayValue(field, value) {
@@ -38,6 +39,10 @@ export default function App() {
   const [sarvamConfigured, setSarvamConfigured] = useState(null);
   const [phase, setPhase] = useState('idle');
   const [speechNote, setSpeechNote] = useState('');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const filteredHistory = filterHistory(history, {search, type: typeFilter, status: statusFilter});
   const speech = useRef(null);
   const session = useRef(0);
   const active = phase !== 'idle';
@@ -169,9 +174,15 @@ export default function App() {
     </section>
     </div>
     <section className="history-section" aria-labelledby="history-heading">
-      <div className="history-heading"><div><p className="eyebrow">A CLEAR RECORD</p><h2 id="history-heading">Action history</h2></div><span className="history-count">{history.length} {history.length === 1 ? 'action' : 'actions'}</span></div>
-      {!history.length && <p className="empty-history">No confirmed changes yet. Your first action will appear here.</p>}
-      <div className="history-list">{history.map(action => <article key={action.id} className="history-item">
+      <div className="history-heading"><div><p className="eyebrow">A CLEAR RECORD</p><h2 id="history-heading">Action history</h2></div><span className="history-count" role="status" aria-live="polite">{filteredHistory.length} of {history.length} actions</span></div>
+      <div className="history-controls">
+        <div><label htmlFor="history-search">Search product</label><input id="history-search" type="search" placeholder="Product name" value={search} onChange={e => setSearch(e.target.value)} /></div>
+        <div><label htmlFor="history-type">Action type</label><select id="history-type" value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All types</option><option value="price">Price</option><option value="stock">Stock</option></select></div>
+        <div><label htmlFor="history-status">Action status</label><select id="history-status" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option value="applied">Applied</option><option value="undone">Undone</option></select></div>
+        <button className="secondary" onClick={() => { setSearch(''); setTypeFilter('all'); setStatusFilter('all'); }}>Clear filters</button>
+      </div>
+      {history.length === 0 ? <p className="empty-history">No confirmed changes yet. Your first action will appear here.</p> : filteredHistory.length === 0 ? <p className="empty-history">No matching actions. Try another search or clear the filters.</p> : null}
+      <div className="history-list">{filteredHistory.map(action => <article key={action.id} className="history-item">
         <div className="history-main"><h3>{action.product}</h3><p><span className="history-field">{action.field === 'price' ? 'Price' : 'Stock'}</span> {displayValue(action.field, action.previous)} <span className="value-arrow" aria-label="changed to">→</span> {displayValue(action.field, action.value)}</p><time dateTime={action.timestamp}>{displayTime(action.timestamp)}</time></div>
         <div className="history-actions"><span className={'status-pill status-pill--' + action.status}>{action.status === 'applied' ? 'Applied' : action.status === 'undone' ? 'Undone' : action.status}</span>
         {action.status === 'applied' && <button className="secondary" disabled={busy || active} onClick={() => run(() => api('undo/' + action.id, {}))}>Undo</button>}</div>
